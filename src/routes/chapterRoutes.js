@@ -9,7 +9,7 @@ const { protect, admin } = require('../middleware/authMiddleware');
 const upload = require('../middleware/uploadMiddleware');
 
 // /p/manga/chapter/:id
-router.route('/:id([0-9a-fA-F]{24})')
+router.route('/:id')
     .get(protect, admin, getChapterById)
     .put(protect, admin, upload.array('content'), updateChapter)
     .delete(protect, admin, deleteChapter);

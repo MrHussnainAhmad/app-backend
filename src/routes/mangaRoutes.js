@@ -16,7 +16,7 @@ router.route('/')
     .get(protect, admin, getMangas)
     .post(protect, admin, createManga);
 
-router.route('/:id([0-9a-fA-F]{24})')
+router.route('/:id')
     .get(protect, admin, getMangaById)
     .put(protect, admin, updateManga)
     .delete(protect, admin, deleteManga);
