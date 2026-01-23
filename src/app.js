@@ -28,10 +28,12 @@ app.use('/p/manga/chapter', chapterRoutes);
 // Mount Manga Operations (and nested chapter creation)
 app.use('/p/manga', mangaRoutes);
 
+const os = require('os');
+const BASE_UPLOAD_PATH = path.join(os.tmpdir(), 'manga-uploads');
+
 // Static content serving (Protected)
 // URL: /p/manga/:mangaSlug/:chapterSlug/filename
-// We map /p/manga to uploads/manga
-app.use('/p/manga', protect, admin, express.static(path.join(path.resolve(), 'uploads', 'manga')));
+app.use('/p/manga', protect, admin, express.static(BASE_UPLOAD_PATH));
 
 // 404 for unknown API routes
 app.use((req, res, next) => {

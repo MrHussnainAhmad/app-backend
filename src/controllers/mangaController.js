@@ -31,6 +31,12 @@ const getMangaById = async (req, res) => {
   }
 };
 
+const os = require('os');
+const BASE_UPLOAD_PATH = path.join(os.tmpdir(), 'manga-uploads');
+
+// Ensure base dir exists
+fs.ensureDirSync(BASE_UPLOAD_PATH);
+
 // @desc    Create a manga
 // @route   POST /p/manga
 // @access  Admin
@@ -53,8 +59,8 @@ const createManga = async (req, res) => {
 
     const createdManga = await manga.save();
 
-    // Create folder structure
-    const mangaDir = path.join(path.resolve(), 'uploads', 'manga', slug);
+    // Create folder structure (in /tmp)
+    const mangaDir = path.join(BASE_UPLOAD_PATH, slug);
     await fs.ensureDir(mangaDir);
 
     res.status(201).json(createdManga);
@@ -83,9 +89,10 @@ const updateManga = async (req, res) => {
 
       // If slug changed, move directory
       if (oldSlug !== manga.slug) {
-         const oldDir = path.join(path.resolve(), 'uploads', 'manga', oldSlug);
-         const newDir = path.join(path.resolve(), 'uploads', 'manga', manga.slug);
+         const oldDir = path.join(BASE_UPLOAD_PATH, oldSlug);
+         const newDir = path.join(BASE_UPLOAD_PATH, manga.slug);
          
+         // Only attempt move if old dir exists (it might not on Vercel fresh boot)
          if (await fs.pathExists(oldDir)) {
              await fs.move(oldDir, newDir, { overwrite: true });
          } else {
@@ -112,15 +119,10 @@ const deleteManga = async (req, res) => {
 
     if (manga) {
       // Delete directory
-      const mangaDir = path.join(path.resolve(), 'uploads', 'manga', manga.slug);
+      const mangaDir = path.join(BASE_UPLOAD_PATH, manga.slug);
       await fs.remove(mangaDir);
       
-      // Trigger cascade delete (requires fetching the document to trigger pre remove hook? 
-      // Actually Mongoose middleware on 'remove' is deprecated in newer versions or requires document.remove() which is not on model. 
-      // Let's use deleteOne and manually trigger or just manual cleanup here.)
-      
-      await manga.deleteOne(); // or findByIdAndDelete. deleteOne on doc *does* not always trigger middleware depending on version. 
-      // To be safe and explicit:
+      await manga.deleteOne(); 
       const Chapter = require('../models/Chapter');
       await Chapter.deleteMany({ manga: manga._id });
 

@@ -3,6 +3,11 @@ const Manga = require('../models/Manga');
 const slugify = require('slugify');
 const fs = require('fs-extra');
 const path = require('path');
+const os = require('os');
+
+const BASE_UPLOAD_PATH = path.join(os.tmpdir(), 'manga-uploads');
+// Ensure base dir exists for safety, though createManga should have made it or we make it on fly
+fs.ensureDirSync(BASE_UPLOAD_PATH);
 
 // @desc    Create a chapter
 // @route   POST /p/manga/:mangaId/chapter
@@ -15,8 +20,7 @@ const createChapter = async (req, res) => {
   try {
     const manga = await Manga.findById(mangaId);
     if (!manga) {
-      // Clean up temp files if manga not found
-      if (files) files.forEach(f => fs.remove(f.path));
+      if (files) files.forEach(f => fs.remove(f.path).catch(() => {}));
       return res.status(404).json({ message: 'Manga not found' });
     }
 
@@ -25,7 +29,7 @@ const createChapter = async (req, res) => {
     // Check if chapter exists
     const chapterExists = await Chapter.findOne({ manga: mangaId, slug });
     if (chapterExists) {
-        if (files) files.forEach(f => fs.remove(f.path));
+        if (files) files.forEach(f => fs.remove(f.path).catch(() => {}));
         return res.status(400).json({ message: 'Chapter with this title already exists in this manga' });
     }
 
@@ -38,36 +42,40 @@ const createChapter = async (req, res) => {
       const isImage = files.every(f => f.mimetype.startsWith('image/'));
 
       if (isPdf && files.length > 1) {
-         if (files) files.forEach(f => fs.remove(f.path));
+         if (files) files.forEach(f => fs.remove(f.path).catch(() => {}));
          return res.status(400).json({ message: 'Only one PDF allowed per chapter' });
       }
 
       if (isPdf) contentType = 'pdf';
       else if (isImage) contentType = 'images';
       else {
-         if (files) files.forEach(f => fs.remove(f.path));
+         if (files) files.forEach(f => fs.remove(f.path).catch(() => {}));
          return res.status(400).json({ message: 'Invalid file types mixed' });
       }
 
       // Move files
-      const targetDir = path.join(path.resolve(), 'uploads', 'manga', manga.slug, slug);
+      const targetDir = path.join(BASE_UPLOAD_PATH, manga.slug, slug);
       await fs.ensureDir(targetDir);
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const ext = path.extname(file.originalname);
-        // We can rename files to index or keep original. 
-        // Keeping original might be safer but ordering matters for images.
-        // Let's prefix with index for images to ensure order.
+        
+        // Use index prefix for images to ensure order
         const newFilename = contentType === 'images' 
             ? `${String(i).padStart(3, '0')}-${file.originalname}`
             : file.originalname;
         
         const targetPath = path.join(targetDir, newFilename);
+        
+        // Move file from multer temp to structured temp
         await fs.move(file.path, targetPath, { overwrite: true });
 
         processedFiles.push({
-            path: path.join('uploads', 'manga', manga.slug, slug, newFilename), // Relative path for serving
+            // Note: This path is relative to the "virtual" root for serving. 
+            // Since serving static files from /tmp is tricky on Vercel without custom routes, 
+            // these files might not be accessible via URL immediately. 
+            // But this stops the crash.
+            path: path.join('manga', manga.slug, slug, newFilename), 
             filename: newFilename,
             originalName: file.originalname,
             mimetype: file.mimetype,
@@ -105,7 +113,7 @@ const updateChapter = async (req, res) => {
     try {
         const chapter = await Chapter.findById(req.params.id).populate('manga');
         if (!chapter) {
-            if (files) files.forEach(f => fs.remove(f.path));
+            if (files) files.forEach(f => fs.remove(f.path).catch(() => {}));
             return res.status(404).json({ message: 'Chapter not found' });
         }
 
@@ -119,8 +127,8 @@ const updateChapter = async (req, res) => {
 
         // Handle rename
         if (newSlug !== oldSlug) {
-            const oldDir = path.join(path.resolve(), 'uploads', 'manga', manga.slug, oldSlug);
-            const newDir = path.join(path.resolve(), 'uploads', 'manga', manga.slug, newSlug);
+            const oldDir = path.join(BASE_UPLOAD_PATH, manga.slug, oldSlug);
+            const newDir = path.join(BASE_UPLOAD_PATH, manga.slug, newSlug);
             
             if (await fs.pathExists(oldDir)) {
                 await fs.move(oldDir, newDir, { overwrite: true });
@@ -130,9 +138,8 @@ const updateChapter = async (req, res) => {
             
             // Update paths in file objects
             chapter.files.forEach(f => {
-                f.path = f.path.replace(`${oldSlug}`, `${newSlug}`); // Simple replace, careful with overlaps
-                // Better: construct fresh path
-                f.path = path.join('uploads', 'manga', manga.slug, newSlug, f.filename);
+                // Update internal reference
+                 f.path = path.join('manga', manga.slug, newSlug, f.filename);
             });
         }
 
@@ -144,7 +151,7 @@ const updateChapter = async (req, res) => {
         // Handle Content Replacement
         if (files && files.length > 0) {
             // Delete old files from disk
-            const targetDir = path.join(path.resolve(), 'uploads', 'manga', manga.slug, newSlug);
+            const targetDir = path.join(BASE_UPLOAD_PATH, manga.slug, newSlug);
             await fs.emptyDir(targetDir); // Clear directory
 
             let contentType = 'none';
@@ -168,7 +175,7 @@ const updateChapter = async (req, res) => {
                 await fs.move(file.path, targetPath, { overwrite: true });
 
                 processedFiles.push({
-                    path: path.join('uploads', 'manga', manga.slug, newSlug, newFilename),
+                    path: path.join('manga', manga.slug, newSlug, newFilename),
                     filename: newFilename,
                     originalName: file.originalname,
                     mimetype: file.mimetype,
@@ -197,8 +204,8 @@ const deleteChapter = async (req, res) => {
     try {
         const chapter = await Chapter.findById(req.params.id).populate('manga');
         if (chapter) {
-            const dir = path.join(path.resolve(), 'uploads', 'manga', chapter.manga.slug, chapter.slug);
-            await fs.remove(dir);
+            const dir = path.join(BASE_UPLOAD_PATH, chapter.manga.slug, chapter.slug);
+            await fs.remove(dir); // Won't fail if dir doesn't exist
             await chapter.deleteOne();
             res.json({ message: 'Chapter deleted' });
         } else {
@@ -211,7 +218,6 @@ const deleteChapter = async (req, res) => {
 
 const getChapters = async (req, res) => {
     try {
-        // Can filter by manga if provided in query or params
         const query = {};
         if (req.params.mangaId) {
             query.manga = req.params.mangaId;
