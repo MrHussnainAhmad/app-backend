@@ -1,5 +1,5 @@
 const app = require('./app');
-const { createInitialAdmin } = require('./controllers/authController');
+const { createInitialAdmin } = require('./modules/auth/controllers/authController');
 
 const PORT = process.env.PORT || 5000;
 

@@ -1,7 +1,6 @@
 const Manga = require('../models/Manga');
 const slugify = require('slugify');
-const fs = require('fs-extra');
-const path = require('path');
+const cloudinary = require('../../../config/cloudinary');
 
 // @desc    Get all mangas
 // @route   GET /p/manga
@@ -31,12 +30,6 @@ const getMangaById = async (req, res) => {
   }
 };
 
-const os = require('os');
-const BASE_UPLOAD_PATH = path.join(os.tmpdir(), 'manga-uploads');
-
-// Ensure base dir exists
-fs.ensureDirSync(BASE_UPLOAD_PATH);
-
 // @desc    Create a manga
 // @route   POST /p/manga
 // @access  Admin
@@ -58,10 +51,7 @@ const createManga = async (req, res) => {
     });
 
     const createdManga = await manga.save();
-
-    // Create folder structure (in /tmp)
-    const mangaDir = path.join(BASE_UPLOAD_PATH, slug);
-    await fs.ensureDir(mangaDir);
+    // No explicit Cloudinary folder creation needed; it's auto-created on file upload.
 
     res.status(201).json(createdManga);
   } catch (error) {
@@ -79,25 +69,17 @@ const updateManga = async (req, res) => {
     const manga = await Manga.findById(req.params.id);
 
     if (manga) {
+      // Logic for slug change exists, but renaming Cloudinary folders is complex.
+      // We will allow the DB slug to update, but the folder might remain old 
+      // until we implement a migration script. 
+      // For now, new files go to new slug folder, old files stay in old slug folder.
+      
       const oldSlug = manga.slug;
       manga.title = title || manga.title;
       manga.description = description || manga.description;
       
       if (title) {
         manga.slug = slugify(title, { lower: true, strict: true });
-      }
-
-      // If slug changed, move directory
-      if (oldSlug !== manga.slug) {
-         const oldDir = path.join(BASE_UPLOAD_PATH, oldSlug);
-         const newDir = path.join(BASE_UPLOAD_PATH, manga.slug);
-         
-         // Only attempt move if old dir exists (it might not on Vercel fresh boot)
-         if (await fs.pathExists(oldDir)) {
-             await fs.move(oldDir, newDir, { overwrite: true });
-         } else {
-             await fs.ensureDir(newDir);
-         }
       }
 
       const updatedManga = await manga.save();
@@ -118,13 +100,33 @@ const deleteManga = async (req, res) => {
     const manga = await Manga.findById(req.params.id);
 
     if (manga) {
-      // Delete directory
-      const mangaDir = path.join(BASE_UPLOAD_PATH, manga.slug);
-      await fs.remove(mangaDir);
-      
-      await manga.deleteOne(); 
+      // 1. Find all chapters to get public IDs
       const Chapter = require('../models/Chapter');
+      const chapters = await Chapter.find({ manga: manga._id });
+
+      // 2. Delete all files in those chapters
+      for (const chapter of chapters) {
+          if (chapter.files && chapter.files.length > 0) {
+             const publicIds = chapter.files.map(f => f.publicId).filter(id => id);
+             if (publicIds.length > 0) {
+                 await cloudinary.api.delete_resources(publicIds, { resource_type: 'image' });
+                 await cloudinary.api.delete_resources(publicIds, { resource_type: 'raw' });
+             }
+          }
+          // Delete chapter folder
+           try {
+              await cloudinary.api.delete_folder(`manga-platform/${manga.slug}/${chapter.slug}`);
+          } catch(e) {}
+      }
+
+      // 3. Delete manga folder
+      try {
+          await cloudinary.api.delete_folder(`manga-platform/${manga.slug}`);
+      } catch(e) {}
+
+      // 4. Delete from DB
       await Chapter.deleteMany({ manga: manga._id });
+      await manga.deleteOne(); 
 
       res.json({ message: 'Manga and associated chapters/files removed' });
     } else {

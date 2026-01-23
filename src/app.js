@@ -15,9 +15,9 @@ app.use(cors());
 app.use(express.json());
 
 // Routes
-const authRoutes = require('./routes/authRoutes');
-const mangaRoutes = require('./routes/mangaRoutes');
-const chapterRoutes = require('./routes/chapterRoutes');
+const authRoutes = require('./modules/auth/routes/authRoutes');
+const mangaRoutes = require('./modules/manga/routes/mangaRoutes');
+const chapterRoutes = require('./modules/manga/routes/chapterRoutes');
 
 // Mount Auth
 app.use('/p/manga/auth', authRoutes);
@@ -28,12 +28,11 @@ app.use('/p/manga/chapter', chapterRoutes);
 // Mount Manga Operations (and nested chapter creation)
 app.use('/p/manga', mangaRoutes);
 
-const os = require('os');
-const BASE_UPLOAD_PATH = path.join(os.tmpdir(), 'manga-uploads');
+
 
 // Static content serving (Protected)
-// URL: /p/manga/:mangaSlug/:chapterSlug/filename
-app.use('/p/manga', protect, admin, express.static(BASE_UPLOAD_PATH));
+// Removed: Using Cloudinary for storage now.
+// app.use('/p/manga', protect, admin, express.static(BASE_UPLOAD_PATH));
 
 // 404 for unknown API routes
 app.use((req, res, next) => {

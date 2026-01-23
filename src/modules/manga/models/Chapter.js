@@ -25,7 +25,8 @@ const chapterSchema = new mongoose.Schema({
   },
   // Store metadata about files
   files: [{
-    path: String,       // Relative path from root or uploads
+    path: String,       // Cloudinary Secure URL
+    publicId: String,   // Cloudinary Public ID
     filename: String,
     originalName: String,
     mimetype: String,

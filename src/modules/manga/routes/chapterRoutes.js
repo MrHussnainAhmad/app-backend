@@ -5,8 +5,8 @@ const {
     updateChapter,
     deleteChapter
 } = require('../controllers/chapterController');
-const { protect, admin } = require('../middleware/authMiddleware');
-const upload = require('../middleware/uploadMiddleware');
+const { protect, admin } = require('../../../middleware/authMiddleware');
+const upload = require('../../../middleware/uploadMiddleware');
 
 // /p/manga/chapter/:id
 router.route('/:id')

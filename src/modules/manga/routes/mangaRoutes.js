@@ -7,9 +7,9 @@ const {
   updateManga,
   deleteManga,
 } = require('../controllers/mangaController');
-const { protect, admin } = require('../middleware/authMiddleware');
+const { protect, admin } = require('../../../middleware/authMiddleware');
 const { getChapters, createChapter } = require('../controllers/chapterController'); // Nested resource
-const upload = require('../middleware/uploadMiddleware');
+const upload = require('../../../middleware/uploadMiddleware');
 
 // /p/manga
 router.route('/')
