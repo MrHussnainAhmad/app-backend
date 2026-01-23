@@ -34,6 +34,11 @@ app.use('/p/manga', mangaRoutes);
 // Removed: Using Cloudinary for storage now.
 // app.use('/p/manga', protect, admin, express.static(BASE_UPLOAD_PATH));
 
+// Health Check
+app.get('/', (req, res) => {
+  res.send('API is running...');
+});
+
 // 404 for unknown API routes
 app.use((req, res, next) => {
     const error = new Error(`Not Found - ${req.originalUrl}`);
