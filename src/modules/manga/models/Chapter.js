@@ -24,7 +24,8 @@ const chapterSchema = new mongoose.Schema({
     default: 'none',
   },
   pageCount: { type: Number, default: 0 },
-  releaseDate: { type: Date, default: Date.now },
+  isPublished: { type: Boolean, default: false }, // New: Admin can set to true for immediate release
+  releaseDate: { type: Date }, // Optional: If not published immediately, schedule it
   files: [{
     path: String,       // Cloudinary Secure URL
     publicId: String,   // Cloudinary Public ID
