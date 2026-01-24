@@ -227,7 +227,8 @@ const getChapters = async (req, res) => {
         // IMPORTANT: do not return full `files` arrays for every chapter (can be huge).
         const chapters = await Chapter.find(finalQuery)
             .sort({ chapterNumber: 1 })
-            .select('title slug chapterNumber contentType pageCount isPublished releaseDate files.path files.index files.mimetype')
+            // IMPORTANT: when using $slice on `files`, do NOT also project `files.*` subpaths (Mongo path collision).
+            .select('title slug chapterNumber contentType pageCount isPublished releaseDate files')
             .slice('files', PREVIEW_FILES_SLICE)
             .lean();
 
