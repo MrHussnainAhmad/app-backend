@@ -3,6 +3,63 @@ const Manga = require('../models/Manga');
 const slugify = require('slugify');
 const cloudinary = require('../../../config/cloudinary');
 
+const PREVIEW_IMAGE_COUNT = 5; // 4/5 images (we use 5)
+const PREVIEW_PDF_PAGE_COUNT = 10;
+const PREVIEW_FILES_SLICE = 20; // Fetch a small slice and derive previews from it
+
+const injectCloudinaryTransform = (url, transform) => {
+    if (!url || typeof url !== 'string') return null;
+    const marker = '/upload/';
+    const idx = url.indexOf(marker);
+    if (idx === -1) return url;
+
+    const prefix = url.slice(0, idx + marker.length);
+    const suffix = url.slice(idx + marker.length);
+    return `${prefix}${transform}/${suffix}`;
+};
+
+const pdfToPageJpgUrls = (pdfUrl, pageCountToReturn) => {
+    if (!pdfUrl) return [];
+    const pages = Math.max(0, Math.min(pageCountToReturn, PREVIEW_PDF_PAGE_COUNT));
+
+    const urls = [];
+    for (let i = 1; i <= pages; i++) {
+        // IMPORTANT: Keep URLs aligned with the mobile reader logic:
+        // reader builds: /upload/pg_${i}/...pdf -> .jpg
+        const transformed = injectCloudinaryTransform(pdfUrl, `pg_${i}`);
+        if (!transformed) continue;
+        urls.push(transformed.replace(/\.pdf(\?|$)/i, '.jpg$1'));
+    }
+    return urls;
+};
+
+const buildChapterPreviewUrls = (chapter) => {
+    if (!chapter) return [];
+
+    if (chapter.contentType === 'images') {
+        const files = Array.isArray(chapter.files) ? chapter.files : [];
+        const sorted = files
+            .slice()
+            .sort((a, b) => (a?.index ?? 0) - (b?.index ?? 0));
+
+        return sorted
+            .slice(0, PREVIEW_IMAGE_COUNT)
+            .map((f) => f?.path)
+            .filter(Boolean);
+    }
+
+    if (chapter.contentType === 'pdf') {
+        const pdfUrl = chapter.files?.[0]?.path;
+        const count = Number.isFinite(chapter.pageCount) && chapter.pageCount > 0
+            ? chapter.pageCount
+            : PREVIEW_PDF_PAGE_COUNT;
+
+        return pdfToPageJpgUrls(pdfUrl, count);
+    }
+
+    return [];
+};
+
 // Helper to calculate next 5:00 AM PKT (00:00 UTC)
 const calculateNextFiveAMPKT = () => {
     const now = new Date();
@@ -31,7 +88,13 @@ const createChapter = async (req, res) => {
     const chapterExists = await Chapter.findOne({ manga: mangaId, slug });
     if (chapterExists) return res.status(400).json({ message: 'Chapter with this title already exists' });
 
-    let contentType = (files && files.length > 0) ? (files[0].mimetype === 'application/pdf' ? 'pdf' : 'images') : 'none';
+    const normalizedFiles = Array.isArray(files)
+        ? files.slice().sort((a, b) => (a?.index ?? 0) - (b?.index ?? 0))
+        : (files || []);
+
+    let contentType = (normalizedFiles && normalizedFiles.length > 0)
+        ? (normalizedFiles[0].mimetype === 'application/pdf' ? 'pdf' : 'images')
+        : 'none';
 
     let finalIsPublishedStatus = isPublished === true || isPublished === 'true'; // Convert from string or boolean
     let finalReleaseDate = null;
@@ -50,7 +113,7 @@ const createChapter = async (req, res) => {
       manga: mangaId,
       contentType,
       pageCount: pageCount || 0,
-      files: files || [],
+      files: normalizedFiles || [],
       isPublished: finalIsPublishedStatus, // Set based on admin choice
       releaseDate: finalReleaseDate, // Set based on admin choice
     });
@@ -103,8 +166,14 @@ const updateChapter = async (req, res) => {
                     await cloudinary.api.delete_resources(publicIds).catch(err => console.error('Cloudinary delete error:', err));
                 }
             }
-            chapter.files = files;
-            chapter.contentType = (files[0].mimetype === 'application/pdf' ? 'pdf' : 'images');
+            const normalizedFiles = Array.isArray(files)
+                ? files.slice().sort((a, b) => (a?.index ?? 0) - (b?.index ?? 0))
+                : files;
+
+            chapter.files = normalizedFiles;
+            chapter.contentType = (Array.isArray(normalizedFiles) && normalizedFiles[0]?.mimetype === 'application/pdf'
+                ? 'pdf'
+                : 'images');
         }
 
         await chapter.save();
@@ -142,46 +211,39 @@ const deleteChapter = async (req, res) => {
 // @desc    Get chapters (public)
 const getChapters = async (req, res) => {
     try {
-        const query = {
-            $or: [
-                { isPublished: true, releaseDate: { $lte: new Date() } }, // Explicitly published and released
-                { isPublished: false, releaseDate: { $lte: new Date() } } // Or just scheduled and released (isPublished=false)
-            ]
-        };
-        // Simplified query logic: if isPublished is true, it means immediate. If releaseDate is set, it's scheduled.
-        // We want all where: (isPublished=true AND released) OR (isPublished=false AND scheduled AND released)
-        // Which simplifies to (isPublished=true AND releaseDate <= now) OR (releaseDate <= now AND isPublished=false)
-        // Which is just: (releaseDate <= now) -- if releaseDate is set, it is visible. If isPublished is true, releaseDate is now.
-
-        const filterQuery = {
-            $or: [
-                { isPublished: true }, // Explicitly marked as published immediately
-                { releaseDate: { $lte: new Date() } } // Or has a release date that has passed
-            ]
-        };
-        // This is still too complex if isPublished=true also sets releaseDate.
-        // Let's simplify the backend logic to be:
-        // A chapter is visible if:
-        // 1. isPublished is true (meaning it was published immediately, releaseDate would be Date.now())
-        // 2. OR releaseDate is set AND releaseDate is in the past ($lte new Date())
-
-        // The query should be simply:
-        // If isPublished is true -> always visible
-        // If isPublished is false and releaseDate is in the past -> visible
-        // If isPublished is false and releaseDate is in the future -> not visible
-        // If isPublished is false and releaseDate is null -> not visible
-
-        // So, chapters should be visible if (isPublished === true) OR (releaseDate !== null AND releaseDate <= new Date())
+        const now = new Date();
         const finalQuery = {
             $or: [
                 { isPublished: true },
-                { releaseDate: { $ne: null, $lte: new Date() } }
+                { releaseDate: { $ne: null, $lte: now } }
             ]
         };
 
         if (req.params.mangaId) finalQuery.manga = req.params.mangaId;
-        const chapters = await Chapter.find(finalQuery).sort({ chapterNumber: 1 });
-        res.json(chapters);
+
+        // Cache for a short time at CDN/edge (safe for public content)
+        res.set('Cache-Control', 'public, max-age=60, s-maxage=60, stale-while-revalidate=300');
+
+        // IMPORTANT: do not return full `files` arrays for every chapter (can be huge).
+        const chapters = await Chapter.find(finalQuery)
+            .sort({ chapterNumber: 1 })
+            .select('title slug chapterNumber contentType pageCount isPublished releaseDate files.path files.index files.mimetype')
+            .slice('files', PREVIEW_FILES_SLICE)
+            .lean();
+
+        const payload = (chapters || []).map((ch) => ({
+            _id: ch._id,
+            title: ch.title,
+            slug: ch.slug,
+            chapterNumber: ch.chapterNumber,
+            contentType: ch.contentType,
+            pageCount: ch.pageCount,
+            isPublished: ch.isPublished,
+            releaseDate: ch.releaseDate,
+            previewUrls: buildChapterPreviewUrls(ch),
+        }));
+
+        res.json(payload);
     } catch (error) {
         console.error('GetChapters Error:', error);
         res.status(500).json({ message: error.message });
