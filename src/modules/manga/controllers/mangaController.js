@@ -5,40 +5,43 @@ const fs = require('fs-extra');
 
 // @desc    Get all mangas (with optional genre filter)
 // @route   GET /p/manga
-// @access  Public (Updated to be public previously)
 const getMangas = async (req, res) => {
   try {
     const { genre } = req.query;
     let query = {};
 
-    if (genre && genre !== 'All') {
+    if (genre && genre !== 'All' && genre !== 'undefined') {
         query.genres = genre;
     }
 
     const mangas = await Manga.find(query).sort({ updatedAt: -1 });
-    res.json(mangas);
+    res.json(mangas || []);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('GetMangas Error:', error);
+    res.status(500).json({ message: 'Error fetching manga list', error: error.message });
   }
 };
 
 // @desc    Get all unique genres
 // @route   GET /p/manga/genres
-// @access  Public
 const getGenres = async (req, res) => {
     try {
         const genres = await Manga.distinct('genres');
-        res.json(genres.sort());
+        const filteredGenres = genres ? genres.filter(g => g && g !== '') : [];
+        res.json(filteredGenres.sort());
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        console.error('GetGenres Error:', error);
+        res.status(500).json({ message: 'Error fetching genres', error: error.message });
     }
 };
 
 // @desc    Get single manga
 // @route   GET /p/manga/:id
-// @access  Public
 const getMangaById = async (req, res) => {
   try {
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+        return res.status(400).json({ message: 'Invalid Manga ID format' });
+    }
     const manga = await Manga.findById(req.params.id);
     if (manga) {
       res.json(manga);
@@ -46,21 +49,23 @@ const getMangaById = async (req, res) => {
       res.status(404).json({ message: 'Manga not found' });
     }
   } catch (error) {
+    console.error('GetMangaById Error:', error);
     res.status(500).json({ message: error.message });
   }
 };
 
 // @desc    Create a manga
 // @route   POST /p/manga
-// @access  Admin
 const createManga = async (req, res) => {
   const { title, description, genres } = req.body;
   const file = req.file;
 
   try {
+    if (!title) return res.status(400).json({ message: 'Title is required' });
+
     const slug = slugify(title, { lower: true, strict: true });
-    
     const mangaExists = await Manga.findOne({ slug });
+    
     if (mangaExists) {
       if(file) fs.remove(file.path).catch(()=>{});
       return res.status(400).json({ message: 'Manga with this title/slug already exists' });
@@ -70,21 +75,15 @@ const createManga = async (req, res) => {
     let coverImagePublicId = '';
 
     if (file) {
-        try {
-            const result = await cloudinary.uploader.upload(file.path, {
-                folder: `manga-platform/${slug}/cover`,
-                resource_type: 'image'
-            });
-            coverImage = result.secure_url;
-            coverImagePublicId = result.public_id;
-            fs.remove(file.path).catch(()=>{});
-        } catch (uploadError) {
-            fs.remove(file.path).catch(()=>{});
-            return res.status(500).json({ message: 'Image upload failed' });
-        }
+        const result = await cloudinary.uploader.upload(file.path, {
+            folder: `manga-platform/${slug}/cover`,
+            resource_type: 'image'
+        });
+        coverImage = result.secure_url;
+        coverImagePublicId = result.public_id;
+        fs.remove(file.path).catch(()=>{});
     }
 
-    // Process genres (comma separated string -> array)
     let genreArray = [];
     if (genres) {
         genreArray = genres.split(',').map(g => g.trim()).filter(g => g);
@@ -93,7 +92,7 @@ const createManga = async (req, res) => {
     const manga = new Manga({
       title,
       slug,
-      description,
+      description: description || '',
       genres: genreArray,
       coverImage,
       coverImagePublicId
@@ -103,13 +102,13 @@ const createManga = async (req, res) => {
     res.status(201).json(createdManga);
   } catch (error) {
     if(file) fs.remove(file.path).catch(()=>{});
+    console.error('CreateManga Error:', error);
     res.status(500).json({ message: error.message });
   }
 };
 
 // @desc    Update a manga
 // @route   PUT /p/manga/:id
-// @access  Admin
 const updateManga = async (req, res) => {
   const { title, description, genres } = req.body;
   const file = req.file;
@@ -130,23 +129,16 @@ const updateManga = async (req, res) => {
       }
 
       if (file) {
-          // Delete old image
           if (manga.coverImagePublicId) {
-              await cloudinary.uploader.destroy(manga.coverImagePublicId);
+              await cloudinary.uploader.destroy(manga.coverImagePublicId).catch(()=>{});
           }
-          // Upload new
-           try {
-            const result = await cloudinary.uploader.upload(file.path, {
-                folder: `manga-platform/${manga.slug}/cover`,
-                resource_type: 'image'
-            });
-            manga.coverImage = result.secure_url;
-            manga.coverImagePublicId = result.public_id;
-            fs.remove(file.path).catch(()=>{});
-        } catch (uploadError) {
-            fs.remove(file.path).catch(()=>{});
-            return res.status(500).json({ message: 'Image upload failed' });
-        }
+          const result = await cloudinary.uploader.upload(file.path, {
+              folder: `manga-platform/${manga.slug}/cover`,
+              resource_type: 'image'
+          });
+          manga.coverImage = result.secure_url;
+          manga.coverImagePublicId = result.public_id;
+          fs.remove(file.path).catch(()=>{});
       }
 
       const updatedManga = await manga.save();
@@ -157,20 +149,20 @@ const updateManga = async (req, res) => {
     }
   } catch (error) {
     if(file) fs.remove(file.path).catch(()=>{});
+    console.error('UpdateManga Error:', error);
     res.status(500).json({ message: error.message });
   }
 };
 
 // @desc    Delete a manga
 // @route   DELETE /p/manga/:id
-// @access  Admin
 const deleteManga = async (req, res) => {
   try {
     const manga = await Manga.findById(req.params.id);
 
     if (manga) {
       if (manga.coverImagePublicId) {
-          await cloudinary.uploader.destroy(manga.coverImagePublicId);
+          await cloudinary.uploader.destroy(manga.coverImagePublicId).catch(()=>{});
       }
 
       const Chapter = require('../models/Chapter');
@@ -180,18 +172,18 @@ const deleteManga = async (req, res) => {
           if (chapter.files && chapter.files.length > 0) {
              const publicIds = chapter.files.map(f => f.publicId).filter(id => id);
              if (publicIds.length > 0) {
-                 await cloudinary.api.delete_resources(publicIds, { resource_type: 'image' });
-                 await cloudinary.api.delete_resources(publicIds, { resource_type: 'raw' });
+                 await cloudinary.api.delete_resources(publicIds, { resource_type: 'image' }).catch(()=>{});
+                 await cloudinary.api.delete_resources(publicIds, { resource_type: 'raw' }).catch(()=>{});
              }
           }
            try {
-              await cloudinary.api.delete_folder(`manga-platform/${manga.slug}/${chapter.slug}`);
+              await cloudinary.api.delete_folder(`manga-platform/${manga.slug}/${chapter.slug}`).catch(()=>{});
           } catch(e) {}
       }
 
       try {
-          await cloudinary.api.delete_folder(`manga-platform/${manga.slug}/cover`);
-          await cloudinary.api.delete_folder(`manga-platform/${manga.slug}`);
+          await cloudinary.api.delete_folder(`manga-platform/${manga.slug}/cover`).catch(()=>{});
+          await cloudinary.api.delete_folder(`manga-platform/${manga.slug}`).catch(()=>{});
       } catch(e) {}
 
       await Chapter.deleteMany({ manga: manga._id });
@@ -202,6 +194,7 @@ const deleteManga = async (req, res) => {
       res.status(404).json({ message: 'Manga not found' });
     }
   } catch (error) {
+    console.error('DeleteManga Error:', error);
     res.status(500).json({ message: error.message });
   }
 };
