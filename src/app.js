@@ -13,7 +13,7 @@ app.use(cors());
 app.use(express.json());
 
 // Attempt DB Connection
-connectDB();
+// connectDB(); // Removed - now handled in server.js before app.listen()
 
 // Routes
 const authRoutes = require('./modules/auth/routes/authRoutes');
