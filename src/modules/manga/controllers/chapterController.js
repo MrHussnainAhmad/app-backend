@@ -7,7 +7,7 @@ const cloudinary = require('../../../config/cloudinary');
 // @route   POST /p/manga/:mangaId/chapter
 // @access  Admin
 const createChapter = async (req, res) => {
-  const { title, chapterNumber, files } = req.body; // files is now an array of { path, publicId, ... }
+  const { title, chapterNumber, files, pageCount } = req.body; // files is now an array of { path, publicId, ... }
   const mangaId = req.params.mangaId;
 
   try {
@@ -43,6 +43,7 @@ const createChapter = async (req, res) => {
       chapterNumber,
       manga: mangaId,
       contentType,
+      pageCount: pageCount || 0,
       files: files || [] // Save the file metadata sent by frontend
     });
 
@@ -59,7 +60,7 @@ const createChapter = async (req, res) => {
 // @route   PUT /p/manga/chapter/:id
 // @access  Admin
 const updateChapter = async (req, res) => {
-    const { title, chapterNumber, files } = req.body;
+    const { title, chapterNumber, files, pageCount } = req.body;
 
     try {
         const chapter = await Chapter.findById(req.params.id).populate('manga');
@@ -78,6 +79,7 @@ const updateChapter = async (req, res) => {
         chapter.title = title || chapter.title;
         chapter.slug = newSlug;
         chapter.chapterNumber = chapterNumber || chapter.chapterNumber;
+        if (pageCount !== undefined) chapter.pageCount = pageCount;
 
         // Handle Content Replacement (If new files are provided)
         if (files && files.length > 0) {

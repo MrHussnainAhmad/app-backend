@@ -23,6 +23,7 @@ const chapterSchema = new mongoose.Schema({
     enum: ['pdf', 'images', 'none'],
     default: 'none',
   },
+  pageCount: { type: Number, default: 0 },
   // Store metadata about files
   files: [{
     path: String,       // Cloudinary Secure URL
