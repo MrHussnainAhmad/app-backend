@@ -1,6 +1,7 @@
 const Manga = require('../models/Manga');
 const slugify = require('slugify');
 const cloudinary = require('../../../config/cloudinary');
+const fs = require('fs-extra');
 
 // @desc    Get all mangas
 // @route   GET /p/manga
@@ -35,26 +36,47 @@ const getMangaById = async (req, res) => {
 // @access  Admin
 const createManga = async (req, res) => {
   const { title, description } = req.body;
+  const file = req.file;
 
   try {
     const slug = slugify(title, { lower: true, strict: true });
     
     const mangaExists = await Manga.findOne({ slug });
     if (mangaExists) {
+      if(file) fs.remove(file.path).catch(()=>{});
       return res.status(400).json({ message: 'Manga with this title/slug already exists' });
+    }
+
+    let coverImage = '';
+    let coverImagePublicId = '';
+
+    if (file) {
+        try {
+            const result = await cloudinary.uploader.upload(file.path, {
+                folder: `manga-platform/${slug}/cover`,
+                resource_type: 'image'
+            });
+            coverImage = result.secure_url;
+            coverImagePublicId = result.public_id;
+            fs.remove(file.path).catch(()=>{});
+        } catch (uploadError) {
+            fs.remove(file.path).catch(()=>{});
+            return res.status(500).json({ message: 'Image upload failed' });
+        }
     }
 
     const manga = new Manga({
       title,
       slug,
       description,
+      coverImage,
+      coverImagePublicId
     });
 
     const createdManga = await manga.save();
-    // No explicit Cloudinary folder creation needed; it's auto-created on file upload.
-
     res.status(201).json(createdManga);
   } catch (error) {
+    if(file) fs.remove(file.path).catch(()=>{});
     res.status(500).json({ message: error.message });
   }
 };
@@ -64,30 +86,50 @@ const createManga = async (req, res) => {
 // @access  Admin
 const updateManga = async (req, res) => {
   const { title, description } = req.body;
+  const file = req.file;
 
   try {
     const manga = await Manga.findById(req.params.id);
 
     if (manga) {
-      // Logic for slug change exists, but renaming Cloudinary folders is complex.
-      // We will allow the DB slug to update, but the folder might remain old 
-      // until we implement a migration script. 
-      // For now, new files go to new slug folder, old files stay in old slug folder.
-      
       const oldSlug = manga.slug;
       manga.title = title || manga.title;
       manga.description = description || manga.description;
       
+      let newSlug = manga.slug;
       if (title) {
-        manga.slug = slugify(title, { lower: true, strict: true });
+        newSlug = slugify(title, { lower: true, strict: true });
+        manga.slug = newSlug;
+      }
+
+      if (file) {
+          // Delete old image
+          if (manga.coverImagePublicId) {
+              await cloudinary.uploader.destroy(manga.coverImagePublicId);
+          }
+          // Upload new
+           try {
+            const result = await cloudinary.uploader.upload(file.path, {
+                folder: `manga-platform/${newSlug}/cover`, // Use new slug
+                resource_type: 'image'
+            });
+            manga.coverImage = result.secure_url;
+            manga.coverImagePublicId = result.public_id;
+            fs.remove(file.path).catch(()=>{});
+        } catch (uploadError) {
+            fs.remove(file.path).catch(()=>{});
+            return res.status(500).json({ message: 'Image upload failed' });
+        }
       }
 
       const updatedManga = await manga.save();
       res.json(updatedManga);
     } else {
+      if(file) fs.remove(file.path).catch(()=>{});
       res.status(404).json({ message: 'Manga not found' });
     }
   } catch (error) {
+    if(file) fs.remove(file.path).catch(()=>{});
     res.status(500).json({ message: error.message });
   }
 };
@@ -100,11 +142,16 @@ const deleteManga = async (req, res) => {
     const manga = await Manga.findById(req.params.id);
 
     if (manga) {
-      // 1. Find all chapters to get public IDs
+      // 1. Delete Cover Image
+      if (manga.coverImagePublicId) {
+          await cloudinary.uploader.destroy(manga.coverImagePublicId);
+      }
+
+      // 2. Find all chapters to get public IDs
       const Chapter = require('../models/Chapter');
       const chapters = await Chapter.find({ manga: manga._id });
 
-      // 2. Delete all files in those chapters
+      // 3. Delete all files in those chapters
       for (const chapter of chapters) {
           if (chapter.files && chapter.files.length > 0) {
              const publicIds = chapter.files.map(f => f.publicId).filter(id => id);
@@ -113,18 +160,18 @@ const deleteManga = async (req, res) => {
                  await cloudinary.api.delete_resources(publicIds, { resource_type: 'raw' });
              }
           }
-          // Delete chapter folder
            try {
               await cloudinary.api.delete_folder(`manga-platform/${manga.slug}/${chapter.slug}`);
           } catch(e) {}
       }
 
-      // 3. Delete manga folder
+      // 4. Delete manga folder
       try {
+          await cloudinary.api.delete_folder(`manga-platform/${manga.slug}/cover`);
           await cloudinary.api.delete_folder(`manga-platform/${manga.slug}`);
       } catch(e) {}
 
-      // 4. Delete from DB
+      // 5. Delete from DB
       await Chapter.deleteMany({ manga: manga._id });
       await manga.deleteOne(); 
 

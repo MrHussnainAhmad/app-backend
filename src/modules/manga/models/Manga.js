@@ -16,6 +16,14 @@ const mangaSchema = new mongoose.Schema({
     type: String,
     default: '',
   },
+  coverImage: {
+    type: String, // Cloudinary URL
+    default: '',
+  },
+  coverImagePublicId: {
+    type: String, // To delete later
+    default: '',
+  },
 }, {
   timestamps: true,
 });

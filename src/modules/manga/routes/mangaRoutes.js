@@ -9,21 +9,24 @@ const {
 } = require('../controllers/mangaController');
 const { protect, admin } = require('../../../middleware/authMiddleware');
 const { getChapters, createChapter } = require('../controllers/chapterController'); // Nested resource
+const { getUploadSignature } = require('../controllers/uploadController');
 const upload = require('../../../middleware/uploadMiddleware');
+
+router.get('/upload-signature', protect, admin, getUploadSignature);
 
 // /p/manga
 router.route('/')
-    .get(protect, admin, getMangas)
-    .post(protect, admin, createManga);
+    .get(getMangas)
+    .post(protect, admin, upload.single('coverImage'), createManga);
 
 router.route('/:id')
-    .get(protect, admin, getMangaById)
-    .put(protect, admin, updateManga)
+    .get(getMangaById)
+    .put(protect, admin, upload.single('coverImage'), updateManga)
     .delete(protect, admin, deleteManga);
 
 // Nested routes for chapters (creation context requires mangaId)
 router.route('/:mangaId/chapters')
-    .get(protect, admin, getChapters);
+    .get(getChapters);
 
 router.route('/:mangaId/chapter')
     .post(protect, admin, upload.array('content'), createChapter);

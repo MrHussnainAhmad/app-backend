@@ -1,26 +1,18 @@
 const Chapter = require('../models/Chapter');
 const Manga = require('../models/Manga');
 const slugify = require('slugify');
-const fs = require('fs-extra');
 const cloudinary = require('../../../config/cloudinary');
 
-// Helper to delete local temp files
-const cleanupTempFiles = (files) => {
-    if (files) files.forEach(f => fs.remove(f.path).catch(console.error));
-};
-
-// @desc    Create a chapter
+// @desc    Create a chapter (Metadata only, files uploaded by client)
 // @route   POST /p/manga/:mangaId/chapter
 // @access  Admin
 const createChapter = async (req, res) => {
-  const { title, chapterNumber } = req.body;
+  const { title, chapterNumber, files } = req.body; // files is now an array of { path, publicId, ... }
   const mangaId = req.params.mangaId;
-  const files = req.files; 
 
   try {
     const manga = await Manga.findById(mangaId);
     if (!manga) {
-      cleanupTempFiles(files);
       return res.status(404).json({ message: 'Manga not found' });
     }
 
@@ -28,62 +20,21 @@ const createChapter = async (req, res) => {
     
     const chapterExists = await Chapter.findOne({ manga: mangaId, slug });
     if (chapterExists) {
-        cleanupTempFiles(files);
         return res.status(400).json({ message: 'Chapter with this title already exists in this manga' });
     }
 
-    // Determine content type
     let contentType = 'none';
-    const processedFiles = [];
-
+    
+    // Validate uploaded files metadata
     if (files && files.length > 0) {
-      const isPdf = files.some(f => f.mimetype === 'application/pdf');
-      const isImage = files.every(f => f.mimetype.startsWith('image/'));
+        const isPdf = files.some(f => f.mimetype === 'application/pdf');
+        const isImage = files.every(f => f.mimetype.startsWith('image/'));
 
-      if (isPdf && files.length > 1) {
-         cleanupTempFiles(files);
-         return res.status(400).json({ message: 'Only one PDF allowed per chapter' });
-      }
-
-      if (isPdf) contentType = 'pdf';
-      else if (isImage) contentType = 'images';
-      else {
-         cleanupTempFiles(files);
-         return res.status(400).json({ message: 'Invalid file types mixed' });
-      }
-
-      // Upload to Cloudinary
-      const folderPath = `manga-platform/${manga.slug}/${slug}`;
-      
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
+        if (isPdf && files.length > 1) return res.status(400).json({ message: 'Only one PDF allowed per chapter' });
         
-        // For images, we might want to ensure order using the index
-        // Cloudinary public_id can be set manually
-        const indexPrefix = String(i).padStart(3, '0');
-        const publicId = contentType === 'images' 
-            ? `${indexPrefix}-${file.originalname.split('.')[0]}`
-            : file.originalname.split('.')[0];
-
-        const result = await cloudinary.uploader.upload(file.path, {
-            folder: folderPath,
-            public_id: publicId,
-            resource_type: 'auto' // Detects image or raw/pdf
-        });
-
-        processedFiles.push({
-            path: result.secure_url, // Save the Cloudinary URL
-            publicId: result.public_id, // Save ID for deletion
-            filename: file.originalname,
-            originalName: file.originalname,
-            mimetype: file.mimetype,
-            size: file.size,
-            index: i
-        });
-      }
-      
-      // Cleanup local temp
-      cleanupTempFiles(files);
+        if (isPdf) contentType = 'pdf';
+        else if (isImage) contentType = 'images';
+        else return res.status(400).json({ message: 'Invalid file types mixed' });
     }
 
     const chapter = new Chapter({
@@ -92,16 +43,15 @@ const createChapter = async (req, res) => {
       chapterNumber,
       manga: mangaId,
       contentType,
-      files: processedFiles
+      files: files || [] // Save the file metadata sent by frontend
     });
 
     await chapter.save();
     res.status(201).json(chapter);
 
   } catch (error) {
-    cleanupTempFiles(files);
     console.error(error);
-    res.status(500).json({ message: error.message || 'Upload failed' });
+    res.status(500).json({ message: error.message });
   }
 };
 
@@ -109,13 +59,11 @@ const createChapter = async (req, res) => {
 // @route   PUT /p/manga/chapter/:id
 // @access  Admin
 const updateChapter = async (req, res) => {
-    const { title, chapterNumber } = req.body;
-    const files = req.files;
+    const { title, chapterNumber, files } = req.body;
 
     try {
         const chapter = await Chapter.findById(req.params.id).populate('manga');
         if (!chapter) {
-            cleanupTempFiles(files);
             return res.status(404).json({ message: 'Chapter not found' });
         }
 
@@ -127,17 +75,11 @@ const updateChapter = async (req, res) => {
             newSlug = slugify(title, { lower: true, strict: true });
         }
 
-        // NOTE: Renaming Cloudinary folders is complex (requires Admin API rate limits).
-        // For this version, if the slug changes, we update the DB but keep the old folder name 
-        // OR we just recommend not changing titles often. 
-        // Implementing full folder move on Cloudinary is heavy. 
-        // We will proceed with updating DB only, new files go to new folder if slug changed.
-
         chapter.title = title || chapter.title;
         chapter.slug = newSlug;
         chapter.chapterNumber = chapterNumber || chapter.chapterNumber;
 
-        // Handle Content Replacement
+        // Handle Content Replacement (If new files are provided)
         if (files && files.length > 0) {
             
             // 1. Delete old files from Cloudinary
@@ -145,68 +87,27 @@ const updateChapter = async (req, res) => {
                 const publicIds = chapter.files.map(f => f.publicId).filter(id => id);
                 if (publicIds.length > 0) {
                     await cloudinary.api.delete_resources(publicIds, { resource_type: 'image' }); 
-                    // Note: If PDF, resource_type might differ, but 'auto' in upload handles it. 
-                    // Delete requires specific type usually. Try 'image' (default) and 'raw'.
-                    // Simplification: Loop delete to be safe or use delete_resources with type detection if stored.
-                    // Ideally we stored resource_type or assume.
+                    await cloudinary.api.delete_resources(publicIds, { resource_type: 'raw' });
                 }
             }
 
             let contentType = 'none';
-            const processedFiles = [];
-
             const isPdf = files.some(f => f.mimetype === 'application/pdf');
             const isImage = files.every(f => f.mimetype.startsWith('image/'));
 
-            if (isPdf && files.length > 1) {
-                cleanupTempFiles(files);
-                return res.status(400).json({ message: 'Only one PDF allowed' });
-            }
+            if (isPdf && files.length > 1) return res.status(400).json({ message: 'Only one PDF allowed' });
             if (isPdf) contentType = 'pdf';
             else if (isImage) contentType = 'images';
-            else {
-                cleanupTempFiles(files);
-                return res.status(400).json({ message: 'Invalid file types' });
-            }
-
-            // 2. Upload new files
-            const folderPath = `manga-platform/${manga.slug}/${newSlug}`;
-
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-                const indexPrefix = String(i).padStart(3, '0');
-                const publicId = contentType === 'images' 
-                    ? `${indexPrefix}-${file.originalname.split('.')[0]}`
-                    : file.originalname.split('.')[0];
-                
-                const result = await cloudinary.uploader.upload(file.path, {
-                    folder: folderPath,
-                    public_id: publicId,
-                    resource_type: 'auto'
-                });
-
-                processedFiles.push({
-                    path: result.secure_url,
-                    publicId: result.public_id,
-                    filename: file.originalname,
-                    originalName: file.originalname,
-                    mimetype: file.mimetype,
-                    size: file.size,
-                    index: i
-                });
-            }
-
-            cleanupTempFiles(files);
+            else return res.status(400).json({ message: 'Invalid file types' });
 
             chapter.contentType = contentType;
-            chapter.files = processedFiles;
+            chapter.files = files; // Replace with new list
         }
 
         await chapter.save();
         res.json(chapter);
 
     } catch (error) {
-        cleanupTempFiles(files);
         res.status(500).json({ message: error.message });
     }
 };
@@ -222,18 +123,15 @@ const deleteChapter = async (req, res) => {
             if (chapter.files && chapter.files.length > 0) {
                 const publicIds = chapter.files.map(f => f.publicId).filter(id => id);
                 if (publicIds.length > 0) {
-                    // Create promises to delete both image and raw (pdf) types to be safe
                     await cloudinary.api.delete_resources(publicIds, { resource_type: 'image' });
-                    await cloudinary.api.delete_resources(publicIds, { resource_type: 'raw' }); // PDFs often stored as raw or image depending on upload
+                    await cloudinary.api.delete_resources(publicIds, { resource_type: 'raw' });
                 }
             }
 
-            // Attempt to delete the folder (will only work if empty)
             const folderPath = `manga-platform/${chapter.manga.slug}/${chapter.slug}`;
             try {
                 await cloudinary.api.delete_folder(folderPath);
             } catch (err) {
-                // Folder might not be empty or exist, ignore
                 console.log('Cloudinary delete folder warning:', err.message);
             }
 

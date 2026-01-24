@@ -10,7 +10,7 @@ const upload = require('../../../middleware/uploadMiddleware');
 
 // /p/manga/chapter/:id
 router.route('/:id')
-    .get(protect, admin, getChapterById)
+    .get(getChapterById)
     .put(protect, admin, upload.array('content'), updateChapter)
     .delete(protect, admin, deleteChapter);
 
