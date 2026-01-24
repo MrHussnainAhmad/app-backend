@@ -33,15 +33,15 @@ const createChapter = async (req, res) => {
 
     let contentType = (files && files.length > 0) ? (files[0].mimetype === 'application/pdf' ? 'pdf' : 'images') : 'none';
 
-    let finalIsPublished = isPublished === 'true'; // Convert string 'true' to boolean true
+    let finalIsPublishedStatus = isPublished === true || isPublished === 'true'; // Convert from string or boolean
     let finalReleaseDate = null;
 
-    if (finalIsPublished) {
+    if (finalIsPublishedStatus) {
         finalReleaseDate = new Date(); // Publish now
-    } else if (scheduleForLater === 'true') {
+    } else if (scheduleForLater === true || scheduleForLater === 'true') {
         finalReleaseDate = calculateNextFiveAMPKT(); // Schedule for next 5 AM PKT
     }
-    // If neither, then isPublished is false and releaseDate is null/undefined
+    // If neither, then isPublished is false and releaseDate is null
 
     const chapter = new Chapter({
       title,
@@ -51,8 +51,8 @@ const createChapter = async (req, res) => {
       contentType,
       pageCount: pageCount || 0,
       files: files || [],
-      isPublished: finalIsPublished,
-      releaseDate: finalReleaseDate,
+      isPublished: finalIsPublishedStatus, // Set based on admin choice
+      releaseDate: finalReleaseDate, // Set based on admin choice
     });
 
     await chapter.save();
@@ -80,24 +80,19 @@ const updateChapter = async (req, res) => {
         if (chapterNumber !== undefined) chapter.chapterNumber = chapterNumber;
         if (pageCount !== undefined) chapter.pageCount = pageCount;
 
-        // Handle publication status
-        if (isPublished !== undefined) {
-            chapter.isPublished = isPublished === 'true'; // Convert string 'true' to boolean
-            if (chapter.isPublished) {
-                chapter.releaseDate = new Date(); // Publish now
-            } else if (scheduleForLater === 'true') {
-                chapter.releaseDate = calculateNextFiveAMPKT();
-            } else {
-                chapter.releaseDate = null; // Unpublish or un-schedule
-            }
-        } else if (scheduleForLater !== undefined) { // If isPublished not explicitly set, but schedule is
-             if (scheduleForLater === 'true') {
-                chapter.releaseDate = calculateNextFiveAMPKT();
-                chapter.isPublished = false; // Not published immediately
-            } else {
-                chapter.releaseDate = null;
-            }
+        // Handle publication status based on new options
+        let finalIsPublishedStatus = isPublished === true || isPublished === 'true';
+        let finalReleaseDate = null;
+
+        if (finalIsPublishedStatus) {
+            finalReleaseDate = new Date(); // Publish now
+        } else if (scheduleForLater === true || scheduleForLater === 'true') {
+            finalReleaseDate = calculateNextFiveAMPKT(); // Schedule for next 5 AM PKT
         }
+        // If neither, then finalIsPublishedStatus is false and finalReleaseDate is null
+
+        chapter.isPublished = finalIsPublishedStatus;
+        chapter.releaseDate = finalReleaseDate;
 
 
         if (files && files.length > 0) {
@@ -149,12 +144,43 @@ const getChapters = async (req, res) => {
     try {
         const query = {
             $or: [
-                { isPublished: true }, // Published immediately
-                { releaseDate: { $lte: new Date() } } // Or scheduled and released
+                { isPublished: true, releaseDate: { $lte: new Date() } }, // Explicitly published and released
+                { isPublished: false, releaseDate: { $lte: new Date() } } // Or just scheduled and released (isPublished=false)
             ]
         };
-        if (req.params.mangaId) query.manga = req.params.mangaId;
-        const chapters = await Chapter.find(query).sort({ chapterNumber: 1 });
+        // Simplified query logic: if isPublished is true, it means immediate. If releaseDate is set, it's scheduled.
+        // We want all where: (isPublished=true AND released) OR (isPublished=false AND scheduled AND released)
+        // Which simplifies to (isPublished=true AND releaseDate <= now) OR (releaseDate <= now AND isPublished=false)
+        // Which is just: (releaseDate <= now) -- if releaseDate is set, it is visible. If isPublished is true, releaseDate is now.
+
+        const filterQuery = {
+            $or: [
+                { isPublished: true }, // Explicitly marked as published immediately
+                { releaseDate: { $lte: new Date() } } // Or has a release date that has passed
+            ]
+        };
+        // This is still too complex if isPublished=true also sets releaseDate.
+        // Let's simplify the backend logic to be:
+        // A chapter is visible if:
+        // 1. isPublished is true (meaning it was published immediately, releaseDate would be Date.now())
+        // 2. OR releaseDate is set AND releaseDate is in the past ($lte new Date())
+
+        // The query should be simply:
+        // If isPublished is true -> always visible
+        // If isPublished is false and releaseDate is in the past -> visible
+        // If isPublished is false and releaseDate is in the future -> not visible
+        // If isPublished is false and releaseDate is null -> not visible
+
+        // So, chapters should be visible if (isPublished === true) OR (releaseDate !== null AND releaseDate <= new Date())
+        const finalQuery = {
+            $or: [
+                { isPublished: true },
+                { releaseDate: { $ne: null, $lte: new Date() } }
+            ]
+        };
+
+        if (req.params.mangaId) finalQuery.manga = req.params.mangaId;
+        const chapters = await Chapter.find(finalQuery).sort({ chapterNumber: 1 });
         res.json(chapters);
     } catch (error) {
         console.error('GetChapters Error:', error);
@@ -162,7 +188,7 @@ const getChapters = async (req, res) => {
     }
 };
 
-// @desc    Get all chapters (admin)
+// @desc    Get all chapters (admin - sees all)
 const getAllChapters = async (req, res) => {
     try {
         const query = {}; // Admin sees all regardless of status or date
