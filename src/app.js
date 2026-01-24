@@ -18,9 +18,13 @@ app.use(express.json());
 const authRoutes = require('./modules/auth/routes/authRoutes');
 const mangaRoutes = require('./modules/manga/routes/mangaRoutes');
 const chapterRoutes = require('./modules/manga/routes/chapterRoutes');
+const interactionRoutes = require('./modules/interactions/routes/interactionRoutes');
 
 // Mount Auth
 app.use('/p/manga/auth', authRoutes);
+
+// Mount Interaction Routes
+app.use('/p/interactions', interactionRoutes);
 
 // Mount Chapter Operations (Direct ID access)
 app.use('/p/manga/chapter', chapterRoutes);
