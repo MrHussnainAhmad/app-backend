@@ -7,12 +7,13 @@ const { protect, admin } = require('./middleware/authMiddleware');
 
 dotenv.config();
 
-connectDB();
-
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// Attempt DB Connection
+connectDB();
 
 // Routes
 const authRoutes = require('./modules/auth/routes/authRoutes');
@@ -32,12 +33,6 @@ app.use('/p/manga/chapter', chapterRoutes);
 // Mount Manga Operations (and nested chapter creation)
 app.use('/p/manga', mangaRoutes);
 
-
-
-// Static content serving (Protected)
-// Removed: Using Cloudinary for storage now.
-// app.use('/p/manga', protect, admin, express.static(BASE_UPLOAD_PATH));
-
 // Health Check
 app.get('/', (req, res) => {
   res.send('API is running...');
@@ -52,6 +47,7 @@ app.use((req, res, next) => {
 
 // Error Handling
 app.use((err, req, res, next) => {
+    console.error('SERVER ERROR:', err.stack); // LOG THIS
     const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
     res.status(statusCode);
     res.json({
