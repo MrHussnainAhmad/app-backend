@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Chapter = require('../models/Chapter');
 const Manga = require('../models/Manga');
 const slugify = require('slugify');
@@ -254,10 +255,55 @@ const getChapters = async (req, res) => {
 // @desc    Get all chapters (admin - sees all)
 const getAllChapters = async (req, res) => {
     try {
+        const includeFiles = req.query.includeFiles === 'true' || req.query.includeFiles === '1';
+
         const query = {}; // Admin sees all regardless of status or date
-        if (req.params.mangaId) query.manga = req.params.mangaId;
-        const chapters = await Chapter.find(query).sort({ chapterNumber: 1 });
-        res.json(chapters);
+        if (req.params.mangaId) {
+            if (!mongoose.isValidObjectId(req.params.mangaId)) {
+                return res.status(400).json({ message: 'Invalid Manga ID format' });
+            }
+            query.manga = new mongoose.Types.ObjectId(req.params.mangaId);
+        }
+
+        // For lists, returning the full `files` array is extremely expensive.
+        // Default behavior: omit files and return filesCount.
+        if (!includeFiles) {
+            const chapters = await Chapter.aggregate([
+                { $match: query },
+                { $sort: { chapterNumber: 1 } },
+                {
+                    $project: {
+                        title: 1,
+                        slug: 1,
+                        chapterNumber: 1,
+                        contentType: 1,
+                        pageCount: 1,
+                        isPublished: 1,
+                        releaseDate: 1,
+                        createdAt: 1,
+                        updatedAt: 1,
+                        filesCount: {
+                            $size: { $ifNull: ['$files', []] }
+                        }
+                    }
+                }
+            ]);
+
+            return res.json(chapters || []);
+        }
+
+        // If explicitly requested, include only a small slice of `files`.
+        const filesSlice = Number.isFinite(Number(req.query.filesSlice))
+            ? Math.max(0, Math.min(200, Number(req.query.filesSlice)))
+            : PREVIEW_FILES_SLICE;
+
+        const chapters = await Chapter.find(query)
+            .sort({ chapterNumber: 1 })
+            .select('title slug chapterNumber contentType pageCount isPublished releaseDate files')
+            .slice('files', filesSlice)
+            .lean();
+
+        res.json(chapters || []);
     } catch (error) {
         console.error('GetAllChapters Error:', error);
         res.status(500).json({ message: error.message });
