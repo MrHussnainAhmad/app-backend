@@ -24,7 +24,7 @@ const chapterSchema = new mongoose.Schema({
     default: 'none',
   },
   pageCount: { type: Number, default: 0 },
-  // Store metadata about files
+  releaseDate: { type: Date, default: Date.now },
   files: [{
     path: String,       // Cloudinary Secure URL
     publicId: String,   // Cloudinary Public ID
