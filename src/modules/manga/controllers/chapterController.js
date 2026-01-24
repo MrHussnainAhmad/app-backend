@@ -172,8 +172,6 @@ const getAllChapters = async (req, res) => {
 };
 
 const getChapterById = async (req, res) => {
-
-const getChapterById = async (req, res) => {
     try {
         const chapter = await Chapter.findById(req.params.id);
         if (chapter) res.json(chapter);
