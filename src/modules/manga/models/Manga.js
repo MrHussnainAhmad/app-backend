@@ -24,6 +24,10 @@ const mangaSchema = new mongoose.Schema({
     type: String, // To delete later
     default: '',
   },
+  genres: [{
+    type: String,
+    trim: true
+  }],
 }, {
   timestamps: true,
 });

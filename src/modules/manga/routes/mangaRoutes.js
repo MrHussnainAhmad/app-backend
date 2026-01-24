@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
   getMangas,
+  getGenres,
   createManga,
   getMangaById,
   updateManga,
@@ -13,6 +14,7 @@ const { getUploadSignature } = require('../controllers/uploadController');
 const upload = require('../../../middleware/uploadMiddleware');
 
 router.get('/upload-signature', protect, admin, getUploadSignature);
+router.get('/genres', getGenres);
 
 // /p/manga
 router.route('/')

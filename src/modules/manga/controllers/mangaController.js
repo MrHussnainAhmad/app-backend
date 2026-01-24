@@ -3,21 +3,40 @@ const slugify = require('slugify');
 const cloudinary = require('../../../config/cloudinary');
 const fs = require('fs-extra');
 
-// @desc    Get all mangas
+// @desc    Get all mangas (with optional genre filter)
 // @route   GET /p/manga
-// @access  Admin
+// @access  Public (Updated to be public previously)
 const getMangas = async (req, res) => {
   try {
-    const mangas = await Manga.find({}).sort({ updatedAt: -1 });
+    const { genre } = req.query;
+    let query = {};
+
+    if (genre && genre !== 'All') {
+        query.genres = genre;
+    }
+
+    const mangas = await Manga.find(query).sort({ updatedAt: -1 });
     res.json(mangas);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
+// @desc    Get all unique genres
+// @route   GET /p/manga/genres
+// @access  Public
+const getGenres = async (req, res) => {
+    try {
+        const genres = await Manga.distinct('genres');
+        res.json(genres.sort());
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 // @desc    Get single manga
 // @route   GET /p/manga/:id
-// @access  Admin
+// @access  Public
 const getMangaById = async (req, res) => {
   try {
     const manga = await Manga.findById(req.params.id);
@@ -35,7 +54,7 @@ const getMangaById = async (req, res) => {
 // @route   POST /p/manga
 // @access  Admin
 const createManga = async (req, res) => {
-  const { title, description } = req.body;
+  const { title, description, genres } = req.body;
   const file = req.file;
 
   try {
@@ -65,10 +84,17 @@ const createManga = async (req, res) => {
         }
     }
 
+    // Process genres (comma separated string -> array)
+    let genreArray = [];
+    if (genres) {
+        genreArray = genres.split(',').map(g => g.trim()).filter(g => g);
+    }
+
     const manga = new Manga({
       title,
       slug,
       description,
+      genres: genreArray,
       coverImage,
       coverImagePublicId
     });
@@ -85,21 +111,22 @@ const createManga = async (req, res) => {
 // @route   PUT /p/manga/:id
 // @access  Admin
 const updateManga = async (req, res) => {
-  const { title, description } = req.body;
+  const { title, description, genres } = req.body;
   const file = req.file;
 
   try {
     const manga = await Manga.findById(req.params.id);
 
     if (manga) {
-      const oldSlug = manga.slug;
       manga.title = title || manga.title;
       manga.description = description || manga.description;
       
-      let newSlug = manga.slug;
       if (title) {
-        newSlug = slugify(title, { lower: true, strict: true });
-        manga.slug = newSlug;
+        manga.slug = slugify(title, { lower: true, strict: true });
+      }
+
+      if (genres !== undefined) {
+         manga.genres = genres.split(',').map(g => g.trim()).filter(g => g);
       }
 
       if (file) {
@@ -110,7 +137,7 @@ const updateManga = async (req, res) => {
           // Upload new
            try {
             const result = await cloudinary.uploader.upload(file.path, {
-                folder: `manga-platform/${newSlug}/cover`, // Use new slug
+                folder: `manga-platform/${manga.slug}/cover`,
                 resource_type: 'image'
             });
             manga.coverImage = result.secure_url;
@@ -142,16 +169,13 @@ const deleteManga = async (req, res) => {
     const manga = await Manga.findById(req.params.id);
 
     if (manga) {
-      // 1. Delete Cover Image
       if (manga.coverImagePublicId) {
           await cloudinary.uploader.destroy(manga.coverImagePublicId);
       }
 
-      // 2. Find all chapters to get public IDs
       const Chapter = require('../models/Chapter');
       const chapters = await Chapter.find({ manga: manga._id });
 
-      // 3. Delete all files in those chapters
       for (const chapter of chapters) {
           if (chapter.files && chapter.files.length > 0) {
              const publicIds = chapter.files.map(f => f.publicId).filter(id => id);
@@ -165,13 +189,11 @@ const deleteManga = async (req, res) => {
           } catch(e) {}
       }
 
-      // 4. Delete manga folder
       try {
           await cloudinary.api.delete_folder(`manga-platform/${manga.slug}/cover`);
           await cloudinary.api.delete_folder(`manga-platform/${manga.slug}`);
       } catch(e) {}
 
-      // 5. Delete from DB
       await Chapter.deleteMany({ manga: manga._id });
       await manga.deleteOne(); 
 
@@ -186,6 +208,7 @@ const deleteManga = async (req, res) => {
 
 module.exports = {
   getMangas,
+  getGenres,
   getMangaById,
   createManga,
   updateManga,
