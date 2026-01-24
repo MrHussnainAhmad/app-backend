@@ -23,8 +23,8 @@ const interactionRoutes = require('./modules/interactions/routes/interactionRout
 // Mount Auth
 app.use('/p/manga/auth', authRoutes);
 
-// Mount Interaction Routes
-app.use('/p/interactions', interactionRoutes);
+// Mount Interaction Routes (Manga specific)
+app.use('/p/manga/interactions', interactionRoutes);
 
 // Mount Chapter Operations (Direct ID access)
 app.use('/p/manga/chapter', chapterRoutes);
