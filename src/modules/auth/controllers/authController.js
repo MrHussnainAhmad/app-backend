@@ -31,9 +31,12 @@ const authUser = async (req, res) => {
   }
 };
 
+const connectDB = require('../../../config/db');
+
 // Internal utility to seed admin
 const createInitialAdmin = async () => {
     try {
+        await connectDB();
         const count = await User.countDocuments();
         if (count === 0) {
             const admin = new User({
