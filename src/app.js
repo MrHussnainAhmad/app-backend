@@ -33,9 +33,12 @@ app.use('/p/manga/chapter', chapterRoutes);
 // Mount Manga Operations (and nested chapter creation)
 app.use('/p/manga', mangaRoutes);
 
+// Exchange Rate Routes
+app.use('/p/general/exchange-rates', require('./routes/exchangeRateRoutes'));
+
 // Health Check
 app.get('/', (req, res) => {
-  res.send('API is running...');
+    res.send('API is running...');
 });
 
 // 404 for unknown API routes
