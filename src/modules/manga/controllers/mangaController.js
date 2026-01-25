@@ -14,7 +14,12 @@ const getMangas = async (req, res) => {
       query.genres = genre;
     }
 
-    const mangas = await Manga.find(query).sort({ updatedAt: -1 });
+    // Exclude reviews array (heavy), use lean() for faster conversion
+    const mangas = await Manga.find(query)
+      .select('-reviews') // Exclude reviews array
+      .sort({ updatedAt: -1 })
+      .lean(); // Convert to plain JS object (faster)
+
     res.json(mangas || []);
   } catch (error) {
     console.error('GetMangas Error:', error);

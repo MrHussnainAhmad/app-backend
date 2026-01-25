@@ -55,6 +55,11 @@ const mangaSchema = new mongoose.Schema({
   timestamps: true,
 });
 
+// Indexes for performance
+mangaSchema.index({ updatedAt: -1 }); // For sorting by latest
+mangaSchema.index({ genres: 1 }); // For genre filtering
+mangaSchema.index({ rating: -1 }); // For sorting by rating
+
 // Cascade delete chapters when a manga is deleted
 mangaSchema.pre('remove', async function (next) {
   console.log(`Chapters being removed from manga ${this._id}`);
