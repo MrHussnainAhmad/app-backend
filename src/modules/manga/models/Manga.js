@@ -46,6 +46,11 @@ const mangaSchema = new mongoose.Schema({
     required: true,
     default: 0,
   },
+  badge: {
+    type: String,
+    enum: ['', 'New', 'Featured', 'Best Read'],
+    default: '',
+  },
 }, {
   timestamps: true,
 });
