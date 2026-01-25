@@ -57,7 +57,7 @@ const getMangaById = async (req, res) => {
 // @desc    Create a manga
 // @route   POST /p/manga
 const createManga = async (req, res) => {
-  const { title, description, genres } = req.body;
+  const { title, description, genres, badge } = req.body;
   const file = req.file;
 
   try {
@@ -95,7 +95,8 @@ const createManga = async (req, res) => {
       description: description || '',
       genres: genreArray,
       coverImage,
-      coverImagePublicId
+      coverImagePublicId,
+      badge: badge || ''
     });
 
     const createdManga = await manga.save();
@@ -110,7 +111,7 @@ const createManga = async (req, res) => {
 // @desc    Update a manga
 // @route   PUT /p/manga/:id
 const updateManga = async (req, res) => {
-  const { title, description, genres } = req.body;
+  const { title, description, genres, badge } = req.body;
   const file = req.file;
 
   try {
@@ -126,6 +127,10 @@ const updateManga = async (req, res) => {
 
       if (genres !== undefined) {
         manga.genres = genres.split(',').map(g => g.trim()).filter(g => g);
+      }
+
+      if (badge !== undefined) {
+        manga.badge = badge;
       }
 
       if (file) {
