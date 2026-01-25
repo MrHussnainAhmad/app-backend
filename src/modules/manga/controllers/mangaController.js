@@ -197,8 +197,6 @@ const deleteManga = async (req, res) => {
     console.error('DeleteManga Error:', error);
     res.status(500).json({ message: error.message });
   }
-  res.status(500).json({ message: error.message });
-}
 };
 
 // @desc    Create new review
