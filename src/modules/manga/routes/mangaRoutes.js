@@ -1,15 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const {
-  getMangas,
-  getGenres,
-  createManga,
-  getMangaById,
-  updateManga,
-  deleteManga,
+    getMangas,
+    getGenres,
+    createManga,
+    getMangaById,
+    updateManga,
+    deleteManga,
+    createMangaReview,
 } = require('../controllers/mangaController');
 const { protect, admin } = require('../../../middleware/authMiddleware');
-const { getChapters, getAllChapters, createChapter } = require('../controllers/chapterController'); 
+const { getChapters, getAllChapters, createChapter } = require('../controllers/chapterController');
 const { getUploadSignature } = require('../controllers/uploadController');
 const upload = require('../../../middleware/uploadMiddleware');
 
@@ -24,7 +25,10 @@ router.route('/')
 router.route('/:id')
     .get(getMangaById)
     .put(protect, admin, upload.single('coverImage'), updateManga)
+    .put(protect, admin, upload.single('coverImage'), updateManga)
     .delete(protect, admin, deleteManga);
+
+router.route('/:id/reviews').post(createMangaReview);
 
 // Public: Released Chapters
 router.route('/:mangaId/chapters')

@@ -1,5 +1,12 @@
 const mongoose = require('mongoose');
 
+const reviewSchema = mongoose.Schema({
+  rating: { type: Number, required: true },
+  ip: { type: String, required: false }, // Optional: track IP to prevent spam if needed basic
+}, {
+  timestamps: true,
+});
+
 const mangaSchema = new mongoose.Schema({
   title: {
     type: String,
@@ -28,6 +35,17 @@ const mangaSchema = new mongoose.Schema({
     type: String,
     trim: true
   }],
+  reviews: [reviewSchema], // Array of reviews
+  rating: {
+    type: Number,
+    required: true,
+    default: 0,
+  },
+  numReviews: {
+    type: Number,
+    required: true,
+    default: 0,
+  },
 }, {
   timestamps: true,
 });
