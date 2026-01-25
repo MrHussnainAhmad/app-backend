@@ -30,4 +30,18 @@ router.post('/refresh', protect, admin, async (req, res) => {
     }
 });
 
+// @desc    Cron Job Endpoint for Vercel (GET)
+// @route   GET /p/general/exchange-rates/cron-job
+// @access  Public (Vercel invokes it)
+router.get('/cron-job', async (req, res) => {
+    try {
+        console.log('Vercel Cron: Triggering exchange rate update...');
+        await fetchAndSaveRates();
+        res.status(200).json({ message: 'Vercel Cron Triggered successfully.' });
+    } catch (error) {
+        console.error('Vercel Cron Error:', error);
+        res.status(500).json({ message: 'Cron Failed' });
+    }
+});
+
 module.exports = router;
