@@ -15,7 +15,7 @@
   "crons": [
     {
       "path": "/p/general/exchange-rates/cron-job",
-      "schedule": "*/37 * * * *"
+      "schedule": "0 0 * * *"
     }
   ]
 }
