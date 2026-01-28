@@ -36,6 +36,9 @@ app.use('/p/manga', mangaRoutes);
 // Exchange Rate Routes
 app.use('/p/general/exchange-rates', require('./routes/exchangeRateRoutes'));
 
+// App Configuration Routes (Versions, Settings)
+app.use('/p/config', require('./routes/configRoutes'));
+
 // Health Check
 app.get('/', (req, res) => {
     res.send('API is running...');
