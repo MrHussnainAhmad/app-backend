@@ -9,6 +9,18 @@ const appConfigSchema = new mongoose.Schema({
         type: String,
         default: '1.0.0', // Default version
     },
+    letscodeCppVersion: {
+        type: String,
+        default: '1.0.0',
+    },
+    letscodePythonBasicsVersion: {
+        type: String,
+        default: '1.0.0',
+    },
+    letscodePythonBasics2Version: {
+        type: String,
+        default: '1.0.0',
+    },
 }, {
     timestamps: true,
 });
