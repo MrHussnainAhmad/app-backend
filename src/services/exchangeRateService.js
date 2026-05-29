@@ -2,29 +2,34 @@ const axios = require('axios');
 const ExchangeRate = require('../models/ExchangeRate');
 
 const fetchAndSaveRates = async () => {
+    const apiKey = process.env.EXCHANGE_RATE_API_KEY;
+    if (!apiKey) {
+        throw new Error('Exchange Rate API Key is missing.');
+    }
+
     try {
-        const apiKey = process.env.EXCHANGE_RATE_API_KEY;
-        if (!apiKey) {
-            console.error('Exchange Rate API Key is missing. Skipping fetch.');
-            return;
+        const url = 'https://api.exchangerateapi.net/v1/latest?base=USD';
+        console.log(`Fetching exchange rates from ${url}...`);
+
+        const response = await axios.get(url, {
+            headers: { apikey: apiKey },
+            timeout: 15000
+        });
+
+        const rates = response?.data?.data;
+        if (!rates || typeof rates !== 'object') {
+            throw new Error(`Unexpected exchange rate response shape: ${JSON.stringify(response.data)}`);
         }
 
-        // Example using exchangerate-api.com
-        const url = `https://v6.exchangerate-api.com/v6/${apiKey}/latest/USD`;
-
-        console.log(`Fetching exchange rates from ${url}...`);
-        const response = await axios.get(url);
-
-        if (response.data && response.data.result === 'success') {
-            const rates = response.data.conversion_rates;
-
-            // Prepare bulk operations for efficient upsert
-            const bulkOps = Object.entries(rates).map(([currency, rate]) => ({
+        // API returns { CODE: { code, value } }, store numeric value only.
+        const bulkOps = Object.entries(rates)
+            .filter(([, entry]) => entry && typeof entry.value === 'number')
+            .map(([currency, entry]) => ({
                 updateOne: {
                     filter: { currency },
                     update: {
                         $set: {
-                            rate,
+                            rate: entry.value,
                             lastUpdated: new Date()
                         }
                     },
@@ -32,16 +37,16 @@ const fetchAndSaveRates = async () => {
                 }
             }));
 
-            if (bulkOps.length > 0) {
-                await ExchangeRate.bulkWrite(bulkOps);
-                console.log(`Successfully updated ${bulkOps.length} exchange rates.`);
-            }
-        } else {
-            console.error('Failed to fetch rates:', response.data);
+        if (bulkOps.length === 0) {
+            throw new Error('No exchange rates found in API response.');
         }
 
+        await ExchangeRate.bulkWrite(bulkOps);
+        console.log(`Successfully updated ${bulkOps.length} exchange rates.`);
+        return bulkOps.length;
     } catch (error) {
-        console.error('Error fetching exchange rates:', error.message);
+        console.error('Error fetching exchange rates:', error.response?.data || error.message);
+        throw error;
     }
 };
 

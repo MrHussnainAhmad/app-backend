@@ -11,10 +11,14 @@ const { protect, admin } = require('../middleware/authMiddleware');
 //          I'll follow pattern: Public for read, Admin for trigger (optional)
 router.get('/', async (req, res) => {
     try {
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.set('Pragma', 'no-cache');
+        res.set('Expires', '0');
         const rates = await getRates();
         res.json(rates);
     } catch (error) {
-        res.status(500).json({ message: 'Server Error' });
+        console.error('GET /general/exchange-rates failed:', error);
+        res.status(500).json({ message: error.message || 'Server Error' });
     }
 });
 
@@ -23,10 +27,11 @@ router.get('/', async (req, res) => {
 // @access  Private/Admin
 router.post('/refresh', protect, admin, async (req, res) => {
     try {
-        await fetchAndSaveRates();
-        res.json({ message: 'Exchange rates update triggered.' });
+        const updatedCount = await fetchAndSaveRates();
+        res.json({ message: 'Exchange rates updated successfully.', updatedCount });
     } catch (error) {
-        res.status(500).json({ message: 'Server Error' });
+        console.error('POST /general/exchange-rates/refresh failed:', error);
+        res.status(500).json({ message: error.message || 'Server Error' });
     }
 });
 
@@ -36,11 +41,11 @@ router.post('/refresh', protect, admin, async (req, res) => {
 router.get('/cron-job', async (req, res) => {
     try {
         console.log('Vercel Cron: Triggering exchange rate update...');
-        await fetchAndSaveRates();
-        res.status(200).json({ message: 'Vercel Cron Triggered successfully.' });
+        const updatedCount = await fetchAndSaveRates();
+        res.status(200).json({ message: 'Vercel Cron Triggered successfully.', updatedCount });
     } catch (error) {
         console.error('Vercel Cron Error:', error);
-        res.status(500).json({ message: 'Cron Failed' });
+        res.status(500).json({ message: error.message || 'Cron Failed' });
     }
 });
 
